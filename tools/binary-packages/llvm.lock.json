@@ -1,0 +1,7 @@
+{
+  "repository": "root-project/llvm-project",
+  "revision": "07e4ec8584f37cd8209b09d4b5cd0e36b759a5d0",
+  "version": "22.1.8",
+  "note": "Pinned companion LLVM fork for this Cling 1.4 development branch; do not use moving cling-latest in release artifacts."
+}
+

@@ -1,3 +1,10 @@
 .idea/
 .vscode/
 CMakeLists.txt.user
+
+# Local binary-package sources, build products and evidence.
+_llvm/
+_build/
+_packages/
+_evidence/
+__pycache__/
