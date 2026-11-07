@@ -4,6 +4,13 @@ Cling - The Interactive C++ Interpreter
 The main repository is at [https://github.com/root-project/cling](https://github.com/root-project/cling)
 
 
+Fork binary archives
+--------------------
+This fork builds Windows 11-compatible x86-64 and Ubuntu 26.04 x86-64
+runtime/embedding SDK archives. See [downloads, prerequisites and validation
+scope](docs/BINARY_PACKAGES.md). Builds use this fork's revision and a pinned
+LLVM dependency; archive availability depends on the corresponding CI run.
+
 Overview
 --------
 Cling is an interactive C++ interpreter, built on top of Clang and LLVM compiler

@@ -2,6 +2,7 @@ name: Cling Build and Test
 
 on:
   push:
+    branches-ignore: [ci/binary-packages]
     paths:
       - '**'
   workflow_dispatch:
@@ -29,7 +30,6 @@ jobs:
       - name: Checkout Cling
         uses: actions/checkout@v6
         with:
-          repository: root-project/cling
           path: cling
           fetch-depth: 1
 

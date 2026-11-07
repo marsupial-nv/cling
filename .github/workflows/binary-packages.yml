@@ -1,0 +1,116 @@
+name: Downloadable Cling archives
+on:
+  workflow_dispatch:
+  push:
+    branches: [master, ci/binary-packages]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: binary-packages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2022
+            target: windows11-x86_64
+            jobs: 2
+          - runner: ubuntu-26.04
+            target: ubuntu26.04-x86_64
+            jobs: 3
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Enable long dependency paths
+        if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
+      - name: Read pinned LLVM revision
+        id: llvm
+        run: |
+          $lock = Get-Content tools/binary-packages/llvm.lock.json -Raw | ConvertFrom-Json
+          "repository=$($lock.repository)" >> $env:GITHUB_OUTPUT
+          "revision=$($lock.revision)" >> $env:GITHUB_OUTPUT
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.llvm.outputs.repository }}
+          ref: ${{ steps.llvm.outputs.revision }}
+          path: _llvm
+          sparse-checkout: |
+            llvm
+            clang
+            cmake
+            third-party
+      - name: Initialize x64 MSVC
+        if: runner.os == 'Windows'
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw "MSVC x64 tools not found" }
+          & cmd /c "`"$vs\Common7\Tools\VsDevCmd.bat`" -arch=x64 -host_arch=x64 >nul && set" | ForEach-Object {
+            if ($_ -match '^([^=]+)=(.*)$') { "$($matches[1])=$($matches[2])" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append }
+          }
+          if ($LASTEXITCODE -ne 0) { throw "MSVC environment setup failed" }
+      - name: Install build tools
+        run: python -m pip install "cmake>=3.31,<4" ninja
+      - name: Configure
+        run: |
+          New-Item -ItemType Directory -Force _evidence | Out-Null
+          $flags = @(
+            "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_POLICY_VERSION_MINIMUM=3.10",
+            "-DLLVM_EXTERNAL_PROJECTS=cling", "-DLLVM_EXTERNAL_CLING_SOURCE_DIR=$env:GITHUB_WORKSPACE",
+            "-DLLVM_ENABLE_PROJECTS=clang", "-DLLVM_TARGETS_TO_BUILD=X86",
+            "-DLLVM_ENABLE_ASSERTIONS=OFF", "-DLLVM_INCLUDE_TESTS=OFF",
+            "-DLLVM_INCLUDE_BENCHMARKS=OFF", "-DCLING_INCLUDE_TESTS=OFF",
+            "-DLLVM_ENABLE_ZLIB=OFF", "-DLLVM_ENABLE_ZSTD=OFF",
+            "-DLLVM_ENABLE_LIBXML2=OFF", "-DLLVM_ENABLE_LIBEDIT=OFF",
+            "-DLLVM_ENABLE_TERMINFO=OFF", "-DLLVM_USE_CRT_RELEASE=MD",
+            "-DLLVM_ENABLE_PIC=ON"
+          )
+          if ($IsLinux) {
+            $flags += '-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON'
+            $flags += '-DCMAKE_INSTALL_RPATH=$ORIGIN/../lib'
+          }
+          cmake -S _llvm/llvm -B _build -G Ninja @flags 2>&1 | Tee-Object _evidence/configure.log
+          if ($LASTEXITCODE -ne 0) { throw "Configure failed: $LASTEXITCODE" }
+      - name: Build interpreter and embedding libraries
+        run: |
+          cmake --build _build --parallel ${{ matrix.jobs }} --target cling libcling clang-resource-headers 2>&1 | Tee-Object _evidence/build.log
+          if ($LASTEXITCODE -ne 0) { throw "Build failed: $LASTEXITCODE" }
+      - name: Package and test archive contents
+        run: |
+          python -u tools/binary-packages/package.py --llvm _llvm --build _build --target ${{ matrix.target }} 2>&1 | Tee-Object _evidence/package.log
+          if ($LASTEXITCODE -ne 0) { throw "Package validation failed: $LASTEXITCODE" }
+      - name: Upload downloadable archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: cling-${{ matrix.target }}-${{ github.sha }}
+          path: |
+            _packages/*.zip
+            _packages/*.tar.gz
+            _packages/*.sha256
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload build and test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-${{ matrix.target }}-${{ github.sha }}
+          path: |
+            _evidence/
+            _build/CMakeFiles/CMakeConfigureLog.yaml
+          if-no-files-found: warn
+          retention-days: 14
+
