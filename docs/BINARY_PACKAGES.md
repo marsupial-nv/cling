@@ -22,7 +22,8 @@ Open [the archive workflow](https://github.com/marsupial-nv/cling/actions/workfl
 select a successful run, and download the artifact for your operating system.
 GitHub wraps it in an artifact ZIP; extract that wrapper, then extract the
 contained platform archive. Each platform archive has a SHA-256 sidecar.
-Artifacts expire after 30 days. These jobs do not automatically create releases.
+Artifacts expire after 30 days. Successful packaging also publishes a GitHub prerelease.
+Manual dispatch accepts windows, linux or all; runtime validation is advisory.
 
 Each archive contains:
 
@@ -70,7 +71,9 @@ CPU compilation; CUDA/NVPTX and ARM builds are outside this workflow's scope.
 
 ## Validation and status
 
-An archive is uploaded only after its CLI and embedding smoke tests pass.
+Archives are created and uploaded after successful compilation and staging.
+CLI and embedding smoke tests run afterward and do not block downloads or
+prerelease publication. A downloadable archive may have known runtime failures.
 The tests compile against the staged SDK and exercise retained interpreter state,
 a native callback, compile-error recovery, C++ exceptions and static destruction.
 Build logs, test logs and per-test JUnit XML are uploaded separately, including

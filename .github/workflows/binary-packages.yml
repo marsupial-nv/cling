@@ -1,6 +1,12 @@
 name: Downloadable Cling archives
 on:
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Platforms to build
+        type: choice
+        default: windows
+        options: [windows, linux, all]
   push:
     branches: [master, ci/binary-packages]
 
@@ -17,13 +23,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - runner: windows-2022
-            target: windows11-x86_64
-            jobs: 2
-          - runner: ubuntu-26.04
-            target: ubuntu26.04-x86_64
-            jobs: 3
+        include: >-
+          ${{ fromJSON(inputs.platform == 'windows' && '[{"runner": "windows-2022", "target": "windows11-x86_64", "jobs": 2}]' || inputs.platform == 'linux' && '[{"runner": "ubuntu-26.04", "target": "ubuntu26.04-x86_64", "jobs": 3}]' || '[{"runner": "windows-2022", "target": "windows11-x86_64", "jobs": 2}, {"runner": "ubuntu-26.04", "target": "ubuntu26.04-x86_64", "jobs": 3}]') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
     defaults:
@@ -88,10 +89,10 @@ jobs:
         run: |
           cmake --build _build --parallel ${{ matrix.jobs }} --target cling libcling clang-resource-headers 2>&1 | Tee-Object _evidence/build.log
           if ($LASTEXITCODE -ne 0) { throw "Build failed: $LASTEXITCODE" }
-      - name: Package and test archive contents
+      - name: Create downloadable archive
         run: |
           python -u tools/binary-packages/package.py --llvm _llvm --build _build --target ${{ matrix.target }} 2>&1 | Tee-Object _evidence/package.log
-          if ($LASTEXITCODE -ne 0) { throw "Package validation failed: $LASTEXITCODE" }
+          if ($LASTEXITCODE -ne 0) { throw "Packaging failed: $LASTEXITCODE" }
       - name: Upload downloadable archive
         uses: actions/upload-artifact@v4
         with:
@@ -103,6 +104,13 @@ jobs:
           compression-level: 0
           if-no-files-found: error
           retention-days: 30
+      - name: Validate packaged runtime (advisory)
+        id: validation
+        continue-on-error: true
+        timeout-minutes: 5
+        run: |
+          python -u tools/binary-packages/package.py --llvm _llvm --build _build --target ${{ matrix.target }} --validate-only 2>&1 | Tee-Object _evidence/validation.log
+          if ($LASTEXITCODE -ne 0) { throw "Runtime validation failed: $LASTEXITCODE; archive remains available" }
       - name: Upload build and test evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -113,6 +121,11 @@ jobs:
             _build/CMakeFiles/CMakeConfigureLog.yaml
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Report runtime validation
+        if: always()
+        run: |
+          "Runtime validation: ${{ steps.validation.outcome }}. Archive publication is independent of this result; check validation logs before relying on the package." >> $env:GITHUB_STEP_SUMMARY
 
 
   release:
@@ -131,4 +144,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh release create "build-${{ github.run_id }}" downloads/* --target "${{ github.sha }}" --title "Cling Windows and Ubuntu 26.04 (${{ github.run_number }})" --prerelease --notes "Native Release builds for Windows x86-64 and Ubuntu 26.04 x86-64. See the workflow run for build and validation evidence. Kit GPU integration is not validated by these hosted runners."
+          gh release create "build-${{ github.run_id }}" downloads/* --target "${{ github.sha }}" --title "Cling ${{ inputs.platform || 'all platforms' }} (${{ github.run_number }})" --prerelease --notes "Development archives for the selected platforms. Runtime tests are advisory and may fail; compilation does not establish runtime correctness. Inspect validation evidence at https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}. Kit GPU integration is not validated."

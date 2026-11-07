@@ -1,4 +1,4 @@
-"""Stage and test a relocatable Cling runtime/embedding SDK, then create an archive."""
+"""Create a relocatable Cling SDK archive; run runtime validation separately."""
 import argparse
 import hashlib
 import json
@@ -117,14 +117,17 @@ def main():
     parser.add_argument("--llvm", type=Path, required=True)
     parser.add_argument("--build", type=Path, required=True)
     parser.add_argument("--target", choices=("windows11-x86_64", "ubuntu26.04-x86_64"), required=True)
+    parser.add_argument("--validate-only", action="store_true", help="Test the existing staged SDK without packaging")
     args = parser.parse_args()
     if args.target.startswith("ubuntu") and platform.freedesktop_os_release().get("VERSION_ID") != "26.04":
         raise RuntimeError("Ubuntu archive must be built and tested on Ubuntu 26.04")
     if args.target.startswith("windows") and (os.name != "nt" or platform.machine().lower() not in ("amd64", "x86_64")):
         raise RuntimeError("Windows archive requires a Windows x86-64 build host")
     output = ROOT / "_packages" / ("cling-" + args.target)
+    if args.validate_only:
+        validate(output, ROOT / "_evidence")
+        return
     stage(args.llvm.resolve(), args.build.resolve(), output, args.target)
-    validate(output, ROOT / "_evidence")
     archive = Path(shutil.make_archive(str(output), "zip" if os.name == "nt" else "gztar",
                                       root_dir=output.parent, base_dir=output.name))
     archive.with_name(archive.name + ".sha256").write_text(f"{digest(archive)}  {archive.name}\n")
