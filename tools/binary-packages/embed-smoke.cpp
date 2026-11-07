@@ -16,7 +16,7 @@ int main(int argc, char** argv) {
             != cling::Interpreter::kSuccess) return 2;
         cling::Value value;
         if (interpreter.evaluate("(double)(values[0]+values[1])", value)
-            != cling::Interpreter::kSuccess || value.getAs<double>() != 42) return 3;
+            != cling::Interpreter::kSuccess || value.castAs<double>() != 42) return 3;
         auto callback = reinterpret_cast<int(*)(int)>(
             interpreter.compileFunction("archive_smoke", "extern \"C\" int archive_smoke(int n) { return n*2; }"));
         if (!callback || callback(21) != 42) return 4;
